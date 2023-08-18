@@ -15,6 +15,15 @@ def worker(conn, env):
         elif cmd == "reset":
             obs, _ = env.reset()
             conn.send(obs)
+        elif cmd == "hash":
+            conn.send(env.hash())  
+        elif cmd == "step_tmp":
+            obs, reward, terminated, truncated, info = env.step_tmp(data)
+            if terminated or truncated:
+                obs, _ = env.reset()
+            conn.send((obs, reward, terminated, truncated, info))
+        elif cmd == "hash_tmp":
+            conn.send(env.hash_tmp())
         else:
             raise NotImplementedError
 
@@ -42,11 +51,32 @@ class ParallelEnv(gym.Env):
             local.send(("reset", None))
         results = [self.envs[0].reset()[0]] + [local.recv() for local in self.locals]
         return results
+    
+    def hash(self):
+        for local in self.locals:
+            local.send(("hash", None))
+        results = [self.envs[0].hash()] + [local.recv() for local in self.locals]
+        return results
+    
+    def hash_tmp(self):
+        for local in self.locals:
+            local.send(("hash_tmp", None))
+        results = [self.envs[0].hash_tmp()] + [local.recv() for local in self.locals]
+        return results
 
     def step(self, actions):
         for local, action in zip(self.locals, actions[1:]):
             local.send(("step", action))
         obs, reward, terminated, truncated, info = self.envs[0].step(actions[0])
+        if terminated or truncated:
+            obs, _ = self.envs[0].reset()
+        results = zip(*[(obs, reward, terminated, truncated, info)] + [local.recv() for local in self.locals])
+        return results
+    
+    def step_tmp(self, actions):
+        for local, action in zip(self.locals, actions[1:]):
+            local.send(("step_tmp", action))
+        obs, reward, terminated, truncated, info = self.envs[0].step_tmp(actions[0])
         if terminated or truncated:
             obs, _ = self.envs[0].reset()
         results = zip(*[(obs, reward, terminated, truncated, info)] + [local.recv() for local in self.locals])
